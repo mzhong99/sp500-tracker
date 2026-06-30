@@ -617,3 +617,62 @@ func printPriceRows(db *sql.DB, symbol string, order string) error {
 
 	return rows.Err()
 }
+
+func loadHistoricalSP500Symbols() (map[string]string, error) {
+	db, err := dbConnect()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`
+		SELECT symbol, max(name)
+		FROM (
+			SELECT symbol, security AS name
+			FROM current_constituents
+
+			UNION ALL
+
+			SELECT added_symbol AS symbol, added_company AS name
+			FROM change_events
+			WHERE added_symbol IS NOT NULL
+
+			UNION ALL
+
+			SELECT removed_symbol AS symbol, removed_company AS name
+			FROM change_events
+			WHERE removed_symbol IS NOT NULL
+		) t
+		WHERE symbol IS NOT NULL
+		  AND symbol <> ''
+		GROUP BY symbol
+		ORDER BY symbol
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	symbols := map[string]string{}
+
+	for rows.Next() {
+		var symbol string
+		var name sql.NullString
+
+		if err := rows.Scan(&symbol, &name); err != nil {
+			return nil, err
+		}
+
+		if name.Valid {
+			symbols[symbol] = name.String
+		} else {
+			symbols[symbol] = ""
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return symbols, nil
+}

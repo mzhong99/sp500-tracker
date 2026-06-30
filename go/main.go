@@ -77,6 +77,15 @@ func main() {
 			os.Exit(1)
 		}
 
+	case os.Args[1] == "analyze":
+		db, err := dbConnect()
+		if err != nil {
+			fmt.Println("db connect failed:", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		handleAnalyze(db, os.Args[2:])
+
 	case os.Args[1] == "stooq":
 		if err := handleStooqCommand(os.Args[2:]); err != nil {
 			fmt.Println("stooq failed:", err)
