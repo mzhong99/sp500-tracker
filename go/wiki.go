@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -87,7 +88,7 @@ func wikiChanges() {
 
 	for i := 0; i < limit; i++ {
 		fmt.Printf("\n%d.\n", i+1)
-		fmt.Println(changes[i].Date)
+		fmt.Println(changes[i].Date.Format("January 2, 2006"))
 		fmt.Printf("Added: %s %s\n", changes[i].AddedSymbol, changes[i].AddedCompany)
 		fmt.Printf("Removed: %s %s\n", changes[i].RemovedSymbol, changes[i].RemovedCompany)
 		fmt.Printf("Reason: %s\n", changes[i].Reason)
@@ -220,20 +221,20 @@ func parseChangeRows(table string) []Change {
 			continue
 		}
 
+		date, err := parseWikiDate(cells[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid date format %q: %v\n", cells[0], err)
+			os.Exit(1)
+		}
+
 		rows = append(rows, Change{
+			Date:           date,
 			AddedSymbol:    cells[1],
 			AddedCompany:   cells[2],
 			RemovedSymbol:  cells[3],
 			RemovedCompany: cells[4],
 			Reason:         cells[5],
 		})
-
-		t, err := time.Parse("January 2, 2006", cells[0])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "invalid date format %q: %v\n", cells[0], err)
-			os.Exit(1)
-		}
-		rows[len(rows)-1].Date = t
 	}
 
 	return rows
@@ -277,4 +278,40 @@ func cleanWikiCell(s string) string {
 	s = strings.ReplaceAll(s, "''", "")
 
 	return strings.TrimSpace(s)
+}
+
+func parseWikiDate(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+
+	t, err := time.Parse("January 2, 2006", s)
+	if err == nil {
+		return t, nil
+	}
+
+	t, err = time.Parse("Jan 2, 2006", s)
+	if err == nil {
+		return t, nil
+	}
+
+	return time.Time{}, fmt.Errorf("parse wiki date %q: %w", s, err)
+}
+
+func wikiMembers(args []string) {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: sp500 wiki members YYYY-MM-DD")
+		os.Exit(2)
+	}
+
+	target, err := time.Parse("2006-01-02", args[0])
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	current, changes := loadWikiData()
+
+	members := ReplayMembers(current, changes, target)
+
+	for _, m := range members {
+		fmt.Printf("%-6s %s\n", m.Symbol, m.Security)
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 )
 
 func main() {
@@ -42,6 +41,14 @@ func main() {
 		if err := wikiIngest(); err != nil {
 			log.Fatal(err)
 		}
+	case os.Args[1] == "db" && os.Args[2] == "current":
+		dbCurrent()
+
+	case os.Args[1] == "db" && os.Args[2] == "changes":
+		dbChanges()
+
+	case os.Args[1] == "db" && os.Args[2] == "members":
+		dbMembers(os.Args[3:])
 
 	default:
 		usage()
@@ -59,22 +66,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki current")
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki changes")
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki members YYYY-MM-DD")
-}
-
-func wikiMembers(args []string) {
-	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: sp500ctl wiki members YYYY-MM-DD")
-		os.Exit(2)
-	}
-
-	targetDate, err := time.Parse("2006-01-02", args[0])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "invalid date %q, expected YYYY-MM-DD\n", args[0])
-		os.Exit(1)
-	}
-
-	current, changes := loadWikiData()
-	members := ReplayMembers(current, changes, targetDate)
-
-	PrintMembers(members, targetDate)
+	fmt.Fprintln(os.Stderr, "  sp500ctl db current")
+	fmt.Fprintln(os.Stderr, "  sp500ctl db changes")
+	fmt.Fprintln(os.Stderr, "  sp500ctl db members YYYY-MM-DD")
 }
