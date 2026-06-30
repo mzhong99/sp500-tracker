@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS change_events (
     reason TEXT,
     loaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS daily_prices (
+    symbol TEXT NOT NULL,
+    price_date DATE NOT NULL,
+    open NUMERIC NOT NULL,
+    high NUMERIC NOT NULL,
+    low NUMERIC NOT NULL,
+    close NUMERIC NOT NULL,
+    volume BIGINT NOT NULL,
+    source TEXT NOT NULL,
+    loaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (symbol, price_date, source)
+);
 
 CREATE INDEX IF NOT EXISTS idx_change_events_date
 ON change_events(change_date);
@@ -439,4 +452,71 @@ func dbSymbol(symbol string) error {
 	}
 
 	return nil
+}
+
+func insertDailyPrices(prices []DailyPrice, source string) error {
+	if len(prices) == 0 {
+		return nil
+	}
+
+	db, err := dbConnect()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	symbol := prices[0].Symbol
+
+	if _, err := tx.Exec(`
+		DELETE FROM daily_prices
+		WHERE symbol = $1
+		  AND source = $2
+	`, symbol, source); err != nil {
+		return err
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO daily_prices (
+			symbol,
+			price_date,
+			open,
+			high,
+			low,
+			close,
+			volume,
+			source
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, p := range prices {
+		if p.Symbol != symbol {
+			return fmt.Errorf("mixed symbols in daily price batch: %s and %s", symbol, p.Symbol)
+		}
+
+		if _, err := stmt.Exec(
+			p.Symbol,
+			p.Date,
+			p.Open,
+			p.High,
+			p.Low,
+			p.Close,
+			p.Volume,
+			source,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
