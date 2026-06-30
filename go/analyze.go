@@ -50,6 +50,7 @@ func handleAnalyze(db *sql.DB, args []string) {
 		fmt.Println()
 		fmt.Println("commands:")
 		fmt.Println("  returns SYMBOL")
+		fmt.Println("  drawdown SYMBOL")
 		os.Exit(1)
 	}
 
@@ -61,6 +62,16 @@ func handleAnalyze(db *sql.DB, args []string) {
 		}
 
 		if err := AnalyzeReturns(db, args[1], "stooq"); err != nil {
+			log.Fatal(err)
+		}
+
+	case "drawdown":
+		if len(args) != 2 {
+			fmt.Println("usage: sp500 analyze drawdown SYMBOL")
+			os.Exit(1)
+		}
+
+		if err := AnalyzeDrawdown(db, args[1], "stooq"); err != nil {
 			log.Fatal(err)
 		}
 
@@ -304,4 +315,41 @@ func sampleStdDevFloat64(xs []float64) float64 {
 
 	variance := sumSquares / float64(len(xs)-1)
 	return math.Sqrt(variance)
+}
+
+func AnalyzeDrawdown(db *sql.DB, symbol string, source string) error {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+
+	prices, err := LoadDailyPrices(db, symbol, source)
+	if err != nil {
+		return err
+	}
+
+	drawdown, err := BuildDrawdownReport(symbol, prices)
+	if err != nil {
+		return err
+	}
+
+	PrintDrawdownReport(symbol, drawdown)
+	return nil
+}
+
+func BuildDrawdownReport(symbol string, prices []DailyPrice) (DrawdownResult, error) {
+	if len(prices) < 2 {
+		return DrawdownResult{}, fmt.Errorf("not enough price data for %s", symbol)
+	}
+
+	return ComputeMaxDrawdown(prices)
+}
+
+func PrintDrawdownReport(symbol string, drawdown DrawdownResult) {
+	fmt.Println(symbol)
+	fmt.Println()
+	fmt.Println("Drawdown")
+	fmt.Println("--------")
+	fmt.Printf("Maximum drawdown:    %.2f%%\n", drawdown.MaxDrawdown*100.0)
+	fmt.Printf("Peak:                %s close %.4f\n", FormatDate(drawdown.PeakDate), drawdown.PeakClose)
+	fmt.Printf("Trough:              %s close %.4f\n", FormatDate(drawdown.TroughDate), drawdown.TroughClose)
+	fmt.Println()
+	fmt.Println("Note: price return only; dividends are not included.")
 }
