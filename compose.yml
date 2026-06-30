@@ -12,7 +12,7 @@ services:
       - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
   go-dev:
-    image: golang:1.24-bookworm
+    image: golang:1.25-bookworm
     working_dir: /workspace
     volumes:
       - ./go:/workspace
