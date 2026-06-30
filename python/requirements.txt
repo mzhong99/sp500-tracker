@@ -1,0 +1,10 @@
+# python/requirements.txt
+pandas
+polars
+numpy
+sqlalchemy
+psycopg[binary]
+jupyterlab
+matplotlib
+plotly
+requests

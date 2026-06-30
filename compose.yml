@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sp500
+      POSTGRES_PASSWORD: sp500
+      POSTGRES_DB: sp500
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  go-dev:
+    image: golang:1.24-bookworm
+    working_dir: /workspace
+    volumes:
+      - ./go:/workspace
+    environment:
+      DATABASE_URL: postgres://sp500:sp500@postgres:5432/sp500?sslmode=disable
+    depends_on:
+      - postgres
+    command: sleep infinity
+
+  py-analysis:
+    build:
+      context: .
+      dockerfile: ./docker/python/Dockerfile
+    working_dir: /workspace
+    volumes:
+      - ./python:/workspace
+    environment:
+      DATABASE_URL: postgresql://sp500:sp500@postgres:5432/sp500
+    depends_on:
+      - postgres
+    command: sleep infinity
+
+  git:
+    image: alpine/git:latest
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - git-home:/root
+    environment:
+      HOME: /root
+    stdin_open: true
+    tty: true
+    entrypoint: ["/bin/sh", "-c"]
+    command: cat
+
+volumes:
+  pgdata:
+  git-home:

@@ -1,0 +1,10 @@
+.env
+*.duckdb
+*.sqlite
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+__pycache__/
+.venv/
+.ipynb_checkpoints/
