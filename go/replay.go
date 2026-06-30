@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -16,12 +15,7 @@ func ReplayMembers(current []Constituent, changes []Change, targetDate time.Time
 	}
 
 	for _, ch := range changes {
-		changeDate, err := parseWikiDate(ch.Date)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skipping change with bad date %q: %v\n", ch.Date, err)
-			continue
-		}
-
+		changeDate := ch.Date
 		if !changeDate.After(targetDate) {
 			break
 		}

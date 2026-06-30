@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 )
@@ -15,6 +16,12 @@ func main() {
 	switch {
 	case os.Args[1] == "db" && os.Args[2] == "ping":
 		dbPing()
+
+	case os.Args[1] == "db" && os.Args[2] == "init":
+		if err := dbInit(); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("initialized database")
 
 	case os.Args[1] == "wiki" && os.Args[2] == "ping":
 		wikiPing()
@@ -31,6 +38,11 @@ func main() {
 	case os.Args[1] == "wiki" && os.Args[2] == "members":
 		wikiMembers(os.Args[3:])
 
+	case os.Args[1] == "wiki" && os.Args[2] == "ingest":
+		if err := wikiIngest(); err != nil {
+			log.Fatal(err)
+		}
+
 	default:
 		usage()
 		os.Exit(2)
@@ -40,7 +52,9 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  sp500ctl db ping")
+	fmt.Fprintln(os.Stderr, "  sp500ctl db init")
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki ping")
+	fmt.Fprintln(os.Stderr, "  sp500ctl wiki ingest")
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki dump")
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki current")
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki changes")

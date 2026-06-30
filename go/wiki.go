@@ -26,7 +26,7 @@ type Constituent struct {
 }
 
 type Change struct {
-	Date           string
+	Date           time.Time
 	AddedSymbol    string
 	AddedCompany   string
 	RemovedSymbol  string
@@ -221,13 +221,19 @@ func parseChangeRows(table string) []Change {
 		}
 
 		rows = append(rows, Change{
-			Date:           cells[0],
 			AddedSymbol:    cells[1],
 			AddedCompany:   cells[2],
 			RemovedSymbol:  cells[3],
 			RemovedCompany: cells[4],
 			Reason:         cells[5],
 		})
+
+		t, err := time.Parse("January 2, 2006", cells[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid date format %q: %v\n", cells[0], err)
+			os.Exit(1)
+		}
+		rows[len(rows)-1].Date = t
 	}
 
 	return rows
