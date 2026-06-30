@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -50,6 +51,19 @@ func main() {
 	case os.Args[1] == "db" && os.Args[2] == "members":
 		dbMembers(os.Args[3:])
 
+	case os.Args[1] == "db" && os.Args[2] == "symbol":
+		if len(os.Args) != 4 {
+			fmt.Println("usage: sp500 db symbol SYMBOL")
+			os.Exit(1)
+		}
+
+		symbol := strings.ToUpper(os.Args[3])
+
+		if err := dbSymbol(symbol); err != nil {
+			fmt.Println("db symbol failed:", err)
+			os.Exit(1)
+		}
+
 	default:
 		usage()
 		os.Exit(2)
@@ -69,4 +83,5 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sp500ctl db current")
 	fmt.Fprintln(os.Stderr, "  sp500ctl db changes")
 	fmt.Fprintln(os.Stderr, "  sp500ctl db members YYYY-MM-DD")
+	fmt.Fprintln(os.Stderr, "  sp500ctl db symbol SYMBOL")
 }

@@ -348,3 +348,95 @@ func dbMembers(args []string) {
 		fmt.Printf("%-6s %s\n", m.Symbol, m.Security)
 	}
 }
+
+func dbSymbol(symbol string) error {
+	db, err := dbConnect()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	var security, sector, subIndustry string
+
+	err = db.QueryRow(`
+		SELECT security, sector, sub_industry
+		FROM current_constituents
+		WHERE symbol = $1
+	`, symbol).Scan(&security, &sector, &subIndustry)
+
+	if err == sql.ErrNoRows {
+		fmt.Printf("%s is not in current_constituents\n\n", symbol)
+	} else if err != nil {
+		return err
+	} else {
+		fmt.Printf("%s is currently in the S&P 500\n", symbol)
+		fmt.Printf("Security:     %s\n", security)
+		fmt.Printf("Sector:       %s\n", sector)
+		fmt.Printf("Sub-industry: %s\n\n", subIndustry)
+	}
+
+	rows, err := db.Query(`
+		SELECT
+			change_date,
+			added_symbol,
+			added_company,
+			removed_symbol,
+			removed_company,
+			reason
+		FROM change_events
+		WHERE added_symbol = $1
+		   OR removed_symbol = $1
+		ORDER BY change_date DESC
+	`, symbol)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	found := false
+
+	fmt.Println("Change events:")
+
+	for rows.Next() {
+		found = true
+
+		var change Change
+
+		if err := rows.Scan(
+			&change.Date,
+			&change.AddedSymbol,
+			&change.AddedCompany,
+			&change.RemovedSymbol,
+			&change.RemovedCompany,
+			&change.Reason,
+		); err != nil {
+			return err
+		}
+
+		fmt.Printf("%s\n", change.Date.Format("2006-01-02"))
+
+		if change.AddedSymbol == symbol {
+			fmt.Printf("  Added:   %s %s\n", change.AddedSymbol, change.AddedCompany)
+		}
+
+		if change.RemovedSymbol == symbol {
+			fmt.Printf("  Removed: %s %s\n", change.RemovedSymbol, change.RemovedCompany)
+		}
+
+		if change.Reason != "" {
+			fmt.Printf("  Reason:  %s\n", change.Reason)
+		}
+
+		fmt.Println()
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if !found {
+		fmt.Println("  none")
+	}
+
+	return nil
+}
