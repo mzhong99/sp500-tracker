@@ -245,14 +245,9 @@ func handleStooqAudit(args []string) error {
 
 	root := args[1]
 
-	historicalNames, err := loadHistoricalSP500Symbols()
+	historicalSymbols, err := loadHistoricalSP500Symbols()
 	if err != nil {
 		return err
-	}
-
-	historicalSymbols := make(map[string]bool)
-	for symbol := range historicalNames {
-		historicalSymbols[symbol] = true
 	}
 
 	providerSymbols, err := scanStooqSymbols(root)

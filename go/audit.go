@@ -5,6 +5,11 @@ import (
 	"sort"
 )
 
+type MissingSymbol struct {
+	Symbol string
+	Name   string
+}
+
 type CoverageAudit struct {
 	Provider          string
 	HistoricalSymbols int
@@ -12,22 +17,27 @@ type CoverageAudit struct {
 	Matched           int
 	Missing           int
 	Coverage          float64
-	MissingSymbols    []string
+	MissingSymbols    []MissingSymbol
 }
 
-func NewCoverageAudit(provider string, historicalSymbols, providerSymbols map[string]bool) CoverageAudit {
-	var missing []string
+func NewCoverageAudit(provider string, historicalSymbols map[string]string, providerSymbols map[string]bool) CoverageAudit {
+	var missing []MissingSymbol
 	matched := 0
 
-	for symbol := range historicalSymbols {
+	for symbol, name := range historicalSymbols {
 		if providerSymbols[symbol] {
 			matched++
 		} else {
-			missing = append(missing, symbol)
+			missing = append(missing, MissingSymbol{
+				Symbol: symbol,
+				Name:   name,
+			})
 		}
 	}
 
-	sort.Strings(missing)
+	sort.Slice(missing, func(i, j int) bool {
+		return missing[i].Symbol < missing[j].Symbol
+	})
 
 	coverage := 0.0
 	if len(historicalSymbols) > 0 {
@@ -57,8 +67,8 @@ func PrintCoverageAudit(a CoverageAudit) {
 	if len(a.MissingSymbols) > 0 {
 		fmt.Println()
 		fmt.Println("Missing symbols:")
-		for _, symbol := range a.MissingSymbols {
-			fmt.Println(symbol)
+		for _, missing := range a.MissingSymbols {
+			fmt.Printf("%-8s %s\n", missing.Symbol, missing.Name)
 		}
 	}
 }
