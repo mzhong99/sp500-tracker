@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ func handleStooqCommand(args []string) error {
 	switch args[0] {
 	case "ingest":
 		return handleStooqIngest(args)
+
+	case "ingest-dir":
+		return handleStooqIngestDir(args)
 
 	default:
 		return fmt.Errorf("unknown stooq command: %s", args[0])
@@ -93,6 +97,9 @@ func parseStooqDailyPrices(symbol string, r io.Reader) ([]DailyPrice, error) {
 	reader := csv.NewReader(r)
 
 	header, err := reader.Read()
+	if err == io.EOF {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -156,10 +163,12 @@ func parseStooqDailyPrices(symbol string, r io.Reader) ([]DailyPrice, error) {
 			return nil, err
 		}
 
-		volume, err := strconv.ParseInt(row[8], 10, 64)
+		volumeFloat, err := strconv.ParseFloat(row[8], 64)
 		if err != nil {
 			return nil, err
 		}
+
+		volume := int64(volumeFloat)
 
 		prices = append(prices, DailyPrice{
 			Symbol: symbol,
@@ -173,4 +182,68 @@ func parseStooqDailyPrices(symbol string, r io.Reader) ([]DailyPrice, error) {
 	}
 
 	return prices, nil
+}
+
+func handleStooqIngestDir(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("usage: sp500 stooq ingest-dir DIR")
+	}
+
+	root := args[1]
+
+	var files []string
+
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		name := strings.ToLower(d.Name())
+		if strings.HasSuffix(name, ".us.txt") {
+			files = append(files, path)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Found %d Stooq .us.txt files\n", len(files))
+
+	totalRows := 0
+
+	for i, file := range files {
+		prices, err := readStooqDailyPriceFile(file)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", file, err)
+		}
+
+		if len(prices) == 0 {
+			fmt.Printf("[%d/%d] %s skipped: no rows\n", i+1, len(files), file)
+			continue
+		}
+
+		if err := insertDailyPrices(prices, "stooq"); err != nil {
+			return fmt.Errorf("insert %s: %w", file, err)
+		}
+
+		totalRows += len(prices)
+
+		fmt.Printf(
+			"[%d/%d] %-8s inserted %d rows\n",
+			i+1,
+			len(files),
+			prices[0].Symbol,
+			len(prices),
+		)
+	}
+
+	fmt.Printf("\nInserted %d total daily_prices rows\n", totalRows)
+
+	return nil
 }

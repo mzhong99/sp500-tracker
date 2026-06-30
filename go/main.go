@@ -64,6 +64,19 @@ func main() {
 			os.Exit(1)
 		}
 
+	case os.Args[1] == "db" && os.Args[2] == "prices":
+		if len(os.Args) != 4 {
+			fmt.Println("usage: sp500 db prices SYMBOL")
+			os.Exit(1)
+		}
+
+		symbol := strings.ToUpper(os.Args[3])
+
+		if err := dbPrices(symbol); err != nil {
+			fmt.Println("db prices failed:", err)
+			os.Exit(1)
+		}
+
 	case os.Args[1] == "stooq":
 		if err := handleStooqCommand(os.Args[2:]); err != nil {
 			fmt.Println("stooq failed:", err)
