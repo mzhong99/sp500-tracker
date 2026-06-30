@@ -9,6 +9,7 @@ import (
 
 	"encoding/json"
 	"io"
+	"sort"
 
 	"regexp"
 	"strings"
@@ -17,7 +18,7 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 3 {
+	if len(os.Args) < 3 {
 		usage()
 		os.Exit(2)
 	}
@@ -33,6 +34,8 @@ func main() {
 		wikiCurrent()
 	case os.Args[1] == "wiki" && os.Args[2] == "changes":
 		wikiChanges()
+	case os.Args[1] == "wiki" && os.Args[2] == "members":
+		wikiMembers()
 	default:
 		usage()
 		os.Exit(2)
@@ -46,6 +49,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki dump")
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki current")
 	fmt.Fprintln(os.Stderr, "  sp500ctl wiki changes")
+	fmt.Fprintln(os.Stderr, "  sp500ctl wiki members YYYY-MM-DD")
 }
 
 func dbPing() {
@@ -387,4 +391,100 @@ func parseChangeRows(table string) []Change {
 	}
 
 	return rows
+}
+
+func wikiMembers() {
+	if len(os.Args) != 4 {
+		fmt.Fprintln(os.Stderr, "usage: sp500ctl wiki members YYYY-MM-DD")
+		os.Exit(2)
+	}
+
+	targetDate, err := time.Parse("2006-01-02", os.Args[3])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid date %q, expected YYYY-MM-DD\n", os.Args[3])
+		os.Exit(1)
+	}
+
+	text := fetchWikiText()
+
+	constituentsTable, err := extractWikiTable(text, `id="constituents"`)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "extract constituents table failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	changesTable, err := extractWikiTable(text, `id="changes"`)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "extract changes table failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	current := parseConstituentRows(constituentsTable)
+	changes := parseChangeRows(changesTable)
+
+	members := make(map[string]Constituent)
+	for _, c := range current {
+		members[c.Symbol] = c
+	}
+
+	for _, ch := range changes {
+		changeDate, err := parseWikiDate(ch.Date)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "skipping change with bad date %q: %v\n", ch.Date, err)
+			continue
+		}
+
+		if !changeDate.After(targetDate) {
+			break
+		}
+
+		// Replaying backward:
+		// if X was added after targetDate, remove X
+		// if Y was removed after targetDate, restore Y
+		if ch.AddedSymbol != "" {
+			delete(members, ch.AddedSymbol)
+		}
+
+		if ch.RemovedSymbol != "" {
+			members[ch.RemovedSymbol] = Constituent{
+				Symbol:   ch.RemovedSymbol,
+				Security: ch.RemovedCompany,
+			}
+		}
+	}
+
+	symbols := make([]string, 0, len(members))
+	for symbol := range members {
+		symbols = append(symbols, symbol)
+	}
+	sort.Strings(symbols)
+
+	fmt.Printf("S&P 500 members on %s\n", targetDate.Format("2006-01-02"))
+	fmt.Printf("count: %d\n\n", len(symbols))
+
+	for _, symbol := range symbols {
+		c := members[symbol]
+		fmt.Printf("%-6s %s\n", c.Symbol, c.Security)
+	}
+}
+
+func parseWikiDate(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+
+	layouts := []string{
+		"January 2, 2006",
+		"Jan 2, 2006",
+		"2006-01-02",
+	}
+
+	var lastErr error
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, s)
+		if err == nil {
+			return t, nil
+		}
+		lastErr = err
+	}
+
+	return time.Time{}, lastErr
 }
