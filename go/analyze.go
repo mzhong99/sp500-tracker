@@ -96,6 +96,12 @@ func handleAnalyze(db *sql.DB, args []string) {
 			log.Fatal(err)
 		}
 
+	case "members":
+		if err := handleAnalyzeMembers(args); err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Printf("unknown analyze command: %s\n", args[0])
 		os.Exit(1)
@@ -478,4 +484,125 @@ func PrintCompareReport(reports []ReturnReport) {
 
 	fmt.Println()
 	fmt.Println("Note: price returns only; dividends are not included.")
+}
+
+type MemberSnapshotRow struct {
+	Symbol   string
+	Name     string
+	Close    float64
+	HasPrice bool
+}
+
+func handleAnalyzeMembers(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("usage: analyze members YYYY-MM-DD")
+	}
+
+	asOf, err := time.Parse("2006-01-02", args[1])
+	if err != nil {
+		return fmt.Errorf("invalid date %q: expected YYYY-MM-DD", args[1])
+	}
+
+	current, err := dbCurrentConstituents()
+	if err != nil {
+		return err
+	}
+
+	changes, err := dbChangeEvents()
+	if err != nil {
+		return err
+	}
+
+	members := ReplayMembers(current, changes, asOf)
+
+	prices, err := loadClosesForDate(asOf)
+	if err != nil {
+		return err
+	}
+
+	rows := make([]MemberSnapshotRow, 0, len(members))
+
+	for _, m := range members {
+		symbol := normalizeSymbol(m.Symbol)
+
+		close, ok := prices[symbol]
+
+		rows = append(rows, MemberSnapshotRow{
+			Symbol:   symbol,
+			Name:     m.Security,
+			Close:    close,
+			HasPrice: ok,
+		})
+	}
+
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].Symbol < rows[j].Symbol
+	})
+
+	priced := 0
+	missing := 0
+
+	for _, row := range rows {
+		if row.HasPrice {
+			priced++
+		} else {
+			missing++
+		}
+	}
+
+	fmt.Printf("Date: %s\n", asOf.Format("2006-01-02"))
+	fmt.Printf("Members: %d\n", len(rows))
+	fmt.Printf("Priced:  %d\n", priced)
+	fmt.Printf("Missing: %d\n", missing)
+	fmt.Println()
+	fmt.Printf("%-8s %-40s %12s\n", "Symbol", "Company", "Close")
+	fmt.Printf("%-8s %-40s %12s\n", "------", "-------", "-----")
+
+	for _, row := range rows {
+		if row.HasPrice {
+			fmt.Printf("%-8s %-40s %12.4f\n", row.Symbol, row.Name, row.Close)
+		} else {
+			fmt.Printf("%-8s %-40s %12s\n", row.Symbol, row.Name, "MISSING")
+		}
+	}
+
+	return nil
+}
+
+func loadClosesForDate(asOf time.Time) (map[string]float64, error) {
+	db, err := dbConnect()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`
+		SELECT symbol, close
+		FROM daily_prices
+		WHERE price_date = $1
+		  AND source = 'stooq'
+	`, dateOnly(asOf))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	prices := make(map[string]float64)
+
+	for rows.Next() {
+		var symbol string
+		var close float64
+
+		if err := rows.Scan(&symbol, &close); err != nil {
+			return nil, err
+		}
+
+		prices[normalizeSymbol(symbol)] = close
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return prices, nil
 }
