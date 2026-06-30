@@ -11,6 +11,39 @@ import (
 	"time"
 )
 
+type ReturnReport struct {
+	Symbol     string
+	First      DailyPrice
+	Last       DailyPrice
+	TradingDay int
+
+	PriceMultiple float64
+	TotalReturn   float64
+	CAGR          float64
+
+	Drawdown   DrawdownResult
+	DailyStats DailyReturnStats
+}
+
+type DrawdownResult struct {
+	MaxDrawdown float64
+	PeakDate    time.Time
+	PeakClose   float64
+	TroughDate  time.Time
+	TroughClose float64
+}
+
+type DailyReturnStats struct {
+	Count                int
+	Mean                 float64
+	Median               float64
+	WorstReturn          float64
+	WorstDate            time.Time
+	BestReturn           float64
+	BestDate             time.Time
+	AnnualizedVolatility float64
+}
+
 func handleAnalyze(db *sql.DB, args []string) {
 	if len(args) < 1 {
 		fmt.Println("usage: sp500 analyze <command>")
@@ -45,83 +78,101 @@ func AnalyzeReturns(db *sql.DB, symbol string, source string) error {
 		return err
 	}
 
+	report, err := BuildReturnReport(symbol, prices)
+	if err != nil {
+		return err
+	}
+
+	PrintReturnReport(report)
+	return nil
+}
+
+func BuildReturnReport(symbol string, prices []DailyPrice) (ReturnReport, error) {
 	if len(prices) < 2 {
-		return fmt.Errorf("not enough price data for %s", symbol)
+		return ReturnReport{}, fmt.Errorf("not enough price data for %s", symbol)
 	}
 
 	first := prices[0]
 	last := prices[len(prices)-1]
 
 	if first.Close <= 0 || last.Close <= 0 {
-		return fmt.Errorf("invalid close price for %s", symbol)
+		return ReturnReport{}, fmt.Errorf("invalid close price for %s", symbol)
 	}
 
 	days := last.Date.Sub(first.Date).Hours() / 24.0
 	years := days / 365.25
 
 	if years <= 0 {
-		return fmt.Errorf("invalid date range for %s", symbol)
+		return ReturnReport{}, fmt.Errorf("invalid date range for %s", symbol)
 	}
 
 	multiple := last.Close / first.Close
 	totalReturn := multiple - 1.0
 	cagr := math.Pow(multiple, 1.0/years) - 1.0
 
-	fmt.Println(symbol)
-	fmt.Println()
-	fmt.Println("History")
-	fmt.Println("-------")
-	fmt.Printf("%s → %s\n", FormatDate(first.Date), FormatDate(last.Date))
-	fmt.Printf("%d trading days\n", len(prices))
-	fmt.Println()
-	fmt.Println("Prices")
-	fmt.Println("------")
-	fmt.Printf("First close:         %.4f\n", first.Close)
-	fmt.Printf("Last close:          %.4f\n", last.Close)
-	fmt.Println()
-	fmt.Println("Return")
-	fmt.Println("------")
-	fmt.Printf("Price multiple:      %.2fx\n", multiple)
-	fmt.Printf("Total price return:  %.2f%%\n", totalReturn*100.0)
-	fmt.Printf("CAGR:                %.2f%%\n", cagr*100.0)
-
 	drawdown, err := ComputeMaxDrawdown(prices)
 	if err != nil {
-		return err
+		return ReturnReport{}, err
 	}
-	fmt.Println()
-	fmt.Println("Drawdown")
-	fmt.Println("--------")
-	fmt.Printf("Maximum drawdown:    %.2f%%\n", drawdown.MaxDrawdown*100.0)
-	fmt.Printf("Peak:                %s close %.4f\n", FormatDate(drawdown.PeakDate), drawdown.PeakClose)
-	fmt.Printf("Trough:              %s close %.4f\n", FormatDate(drawdown.TroughDate), drawdown.TroughClose)
 
 	dailyStats, err := ComputeDailyReturnStats(prices)
 	if err != nil {
-		return err
+		return ReturnReport{}, err
 	}
+
+	return ReturnReport{
+		Symbol:        symbol,
+		First:         first,
+		Last:          last,
+		TradingDay:    len(prices),
+		PriceMultiple: multiple,
+		TotalReturn:   totalReturn,
+		CAGR:          cagr,
+		Drawdown:      drawdown,
+		DailyStats:    dailyStats,
+	}, nil
+}
+
+func PrintReturnReport(report ReturnReport) {
+	fmt.Println(report.Symbol)
+	fmt.Println()
+	fmt.Println("History")
+	fmt.Println("-------")
+	fmt.Printf("%s → %s\n", FormatDate(report.First.Date), FormatDate(report.Last.Date))
+	fmt.Printf("%d trading days\n", report.TradingDay)
+
+	fmt.Println()
+	fmt.Println("Prices")
+	fmt.Println("------")
+	fmt.Printf("First close:         %.4f\n", report.First.Close)
+	fmt.Printf("Last close:          %.4f\n", report.Last.Close)
+
+	fmt.Println()
+	fmt.Println("Return")
+	fmt.Println("------")
+	fmt.Printf("Price multiple:      %.2fx\n", report.PriceMultiple)
+	fmt.Printf("Total price return:  %.2f%%\n", report.TotalReturn*100.0)
+	fmt.Printf("CAGR:                %.2f%%\n", report.CAGR*100.0)
+
+	fmt.Println()
+	fmt.Println("Drawdown")
+	fmt.Println("--------")
+	fmt.Printf("Maximum drawdown:    %.2f%%\n", report.Drawdown.MaxDrawdown*100.0)
+	fmt.Printf("Peak:                %s close %.4f\n", FormatDate(report.Drawdown.PeakDate), report.Drawdown.PeakClose)
+	fmt.Printf("Trough:              %s close %.4f\n", FormatDate(report.Drawdown.TroughDate), report.Drawdown.TroughClose)
+
 	fmt.Println()
 	fmt.Println("Daily returns")
 	fmt.Println("-------------")
-	fmt.Printf("Return days:          %d\n", dailyStats.Count)
-	fmt.Printf("Mean daily return:    %.4f%%\n", dailyStats.Mean*100.0)
-	fmt.Printf("Median daily return:  %.4f%%\n", dailyStats.Median*100.0)
-	fmt.Printf("Worst day:            %.2f%% on %s\n", dailyStats.WorstReturn*100.0, FormatDate(dailyStats.WorstDate))
-	fmt.Printf("Best day:             %.2f%% on %s\n", dailyStats.BestReturn*100.0, FormatDate(dailyStats.BestDate))
-	fmt.Printf("Annualized volatility %.2f%%\n", dailyStats.AnnualizedVolatility*100.0)
+	fmt.Printf("Return days:          %d\n", report.DailyStats.Count)
+	fmt.Printf("Mean daily return:    %.4f%%\n", report.DailyStats.Mean*100.0)
+	fmt.Printf("Median daily return:  %.4f%%\n", report.DailyStats.Median*100.0)
+	fmt.Printf("Worst day:            %.2f%% on %s\n", report.DailyStats.WorstReturn*100.0, FormatDate(report.DailyStats.WorstDate))
+	fmt.Printf("Best day:             %.2f%% on %s\n", report.DailyStats.BestReturn*100.0, FormatDate(report.DailyStats.BestDate))
+	fmt.Printf("Annualized volatility: %.2f%%\n", report.DailyStats.AnnualizedVolatility*100.0)
 
 	fmt.Println()
 	fmt.Println("Note: price return only; dividends are not included.")
-
-	return nil
-}
-
-type DrawdownResult struct {
-	MaxDrawdown float64
-	PeakDate    time.Time
-	PeakClose   float64
-	TroughDate  time.Time
-	TroughClose float64
 }
 
 func ComputeMaxDrawdown(prices []DailyPrice) (DrawdownResult, error) {
@@ -167,17 +218,6 @@ func ComputeMaxDrawdown(prices []DailyPrice) (DrawdownResult, error) {
 	return result, nil
 }
 
-type DailyReturnStats struct {
-	Count                int
-	Mean                 float64
-	Median               float64
-	WorstReturn          float64
-	WorstDate            time.Time
-	BestReturn           float64
-	BestDate             time.Time
-	AnnualizedVolatility float64
-}
-
 func ComputeDailyReturnStats(prices []DailyPrice) (DailyReturnStats, error) {
 	if len(prices) < 2 {
 		return DailyReturnStats{}, fmt.Errorf("not enough prices to compute daily returns")
@@ -212,14 +252,10 @@ func ComputeDailyReturnStats(prices []DailyPrice) (DailyReturnStats, error) {
 		}
 	}
 
-	mean := meanFloat64(returns)
-	median := medianFloat64(returns)
-	vol := sampleStdDevFloat64(returns) * math.Sqrt(252.0)
-
 	stats.Count = len(returns)
-	stats.Mean = mean
-	stats.Median = median
-	stats.AnnualizedVolatility = vol
+	stats.Mean = meanFloat64(returns)
+	stats.Median = medianFloat64(returns)
+	stats.AnnualizedVolatility = sampleStdDevFloat64(returns) * math.Sqrt(252.0)
 
 	return stats, nil
 }
