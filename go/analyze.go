@@ -118,6 +118,12 @@ func handleAnalyze(db *sql.DB, args []string) {
 			os.Exit(1)
 		}
 
+	case "weights":
+		if err := handleAnalyzeWeights(args); err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+
 	default:
 		fmt.Printf("unknown analyze command: %s\n", args[0])
 		os.Exit(1)

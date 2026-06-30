@@ -372,3 +372,181 @@ func firstPriceDateOnOrAfter(asOf time.Time) (time.Time, error) {
 
 	return priceDate, nil
 }
+
+type WeightedConstituent struct {
+	Date      time.Time
+	Symbol    string
+	Name      string
+	Close     float64
+	HasPrice  bool
+	MarketCap float64
+	HasCap    bool
+	Weight    float64
+}
+
+func handleAnalyzeWeights(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("usage: analyze weights YYYY-MM-DD")
+	}
+
+	asOf, err := time.Parse("2006-01-02", args[1])
+	if err != nil {
+		return fmt.Errorf("invalid date %q: expected YYYY-MM-DD", args[1])
+	}
+
+	rows, err := loadWeightedConstituents(asOf)
+	if err != nil {
+		return err
+	}
+
+	printWeightsReport(asOf, rows)
+	return nil
+}
+
+func loadWeightedConstituents(asOf time.Time) ([]WeightedConstituent, error) {
+	snapshot, err := loadMemberPriceSnapshot(asOf)
+	if err != nil {
+		return nil, err
+	}
+
+	caps, err := loadMarketCapsForDate(asOf)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]WeightedConstituent, 0, len(snapshot))
+
+	totalCap := 0.0
+
+	for _, row := range snapshot {
+		cap, hasCap := caps[row.Symbol]
+
+		if hasCap {
+			totalCap += cap
+		}
+
+		rows = append(rows, WeightedConstituent{
+			Date:      asOf,
+			Symbol:    row.Symbol,
+			Name:      row.Name,
+			Close:     row.Close,
+			HasPrice:  row.HasPrice,
+			MarketCap: cap,
+			HasCap:    hasCap,
+		})
+	}
+
+	if totalCap > 0 {
+		for i := range rows {
+			if rows[i].HasCap {
+				rows[i].Weight = rows[i].MarketCap / totalCap
+			}
+		}
+	}
+
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].Weight > rows[j].Weight
+	})
+
+	return rows, nil
+}
+
+func loadMarketCapsForDate(asOf time.Time) (map[string]float64, error) {
+	db, err := dbConnect()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`
+		SELECT symbol, market_cap
+		FROM daily_market_caps
+		WHERE cap_date = $1
+	`, dateOnly(asOf))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	caps := make(map[string]float64)
+
+	for rows.Next() {
+		var symbol string
+		var cap float64
+
+		if err := rows.Scan(&symbol, &cap); err != nil {
+			return nil, err
+		}
+
+		symbol = normalizeSymbol(symbol)
+		if symbol == "" {
+			continue
+		}
+
+		caps[symbol] = cap
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return caps, nil
+}
+
+func printWeightsReport(asOf time.Time, rows []WeightedConstituent) {
+	members := len(rows)
+	priced := 0
+	withCaps := 0
+	totalCap := 0.0
+
+	for _, row := range rows {
+		if row.HasPrice {
+			priced++
+		}
+
+		if row.HasCap {
+			withCaps++
+			totalCap += row.MarketCap
+		}
+	}
+
+	fmt.Println("Weights")
+	fmt.Println()
+	fmt.Printf("Date:               %s\n", asOf.Format("2006-01-02"))
+	fmt.Println()
+	fmt.Printf("Members:            %d\n", members)
+	fmt.Printf("Priced:             %d\n", priced)
+	fmt.Printf("Market caps:        %d\n", withCaps)
+
+	if members > 0 {
+		fmt.Printf("Price coverage:     %.1f%%\n", float64(priced)/float64(members)*100.0)
+		fmt.Printf("Cap coverage:       %.1f%%\n", float64(withCaps)/float64(members)*100.0)
+	}
+
+	fmt.Println()
+
+	if withCaps == 0 {
+		fmt.Println("Weights: unavailable")
+		fmt.Println()
+		fmt.Println("Reason: no market cap rows loaded for this date.")
+		return
+	}
+
+	fmt.Printf("Total market cap:   %.0f\n", totalCap)
+	fmt.Println()
+	fmt.Printf("%-8s %-40s %14s %10s\n", "Symbol", "Company", "Market Cap", "Weight")
+	fmt.Printf("%-8s %-40s %14s %10s\n", "------", "-------", "----------", "------")
+
+	for _, row := range rows {
+		if !row.HasCap {
+			continue
+		}
+
+		fmt.Printf("%-8s %-40s %14.0f %9.2f%%\n",
+			row.Symbol,
+			row.Name,
+			row.MarketCap,
+			row.Weight*100.0,
+		)
+	}
+}

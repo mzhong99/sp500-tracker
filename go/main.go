@@ -92,6 +92,12 @@ func main() {
 			os.Exit(1)
 		}
 
+	case os.Args[1] == "marketcap":
+		if err := handleMarketCap(os.Args[2:]); err != nil {
+			fmt.Println("marketcap failed:", err)
+			os.Exit(1)
+		}
+
 	default:
 		usage()
 		os.Exit(2)

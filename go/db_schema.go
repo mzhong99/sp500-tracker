@@ -41,8 +41,21 @@ CREATE TABLE IF NOT EXISTS daily_prices (
     PRIMARY KEY (symbol, price_date, source)
 );
 
+CREATE TABLE IF NOT EXISTS daily_market_caps (
+    symbol TEXT NOT NULL,
+    cap_date DATE NOT NULL,
+    market_cap NUMERIC NOT NULL,
+    source TEXT NOT NULL,
+    loaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (symbol, cap_date, source)
+);
+
 CREATE INDEX IF NOT EXISTS idx_change_events_date
 ON change_events(change_date);
+
+CREATE INDEX IF NOT EXISTS idx_daily_market_caps_date
+ON daily_market_caps(cap_date);
 `
 	_, err = db.Exec(schema)
 	return err
