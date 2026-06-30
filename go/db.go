@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -618,6 +619,16 @@ func printPriceRows(db *sql.DB, symbol string, order string) error {
 	return rows.Err()
 }
 
+func normalizeSymbol(symbol string) string {
+	symbol = strings.TrimSpace(symbol)
+
+	if i := strings.Index(symbol, "<"); i >= 0 {
+		symbol = strings.TrimSpace(symbol[:i])
+	}
+
+	return strings.ToUpper(symbol)
+}
+
 func loadHistoricalSP500Symbols() (map[string]string, error) {
 	db, err := dbConnect()
 	if err != nil {
@@ -653,7 +664,7 @@ func loadHistoricalSP500Symbols() (map[string]string, error) {
 	}
 	defer rows.Close()
 
-	symbols := map[string]string{}
+	symbols := make(map[string]string)
 
 	for rows.Next() {
 		var symbol string
@@ -661,6 +672,11 @@ func loadHistoricalSP500Symbols() (map[string]string, error) {
 
 		if err := rows.Scan(&symbol, &name); err != nil {
 			return nil, err
+		}
+
+		symbol = normalizeSymbol(symbol)
+		if symbol == "" {
+			continue
 		}
 
 		if name.Valid {

@@ -4,9 +4,9 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -240,21 +240,38 @@ func handleStooqIngestDir(args []string) error {
 
 func handleStooqAudit(args []string) error {
 	if len(args) != 2 {
-		return fmt.Errorf("usage: sp500 stooq audit DIR")
+		return fmt.Errorf("usage: stooq audit DIRECTORY")
 	}
 
 	root := args[1]
 
-	spSymbols, err := loadHistoricalSP500Symbols()
+	historicalNames, err := loadHistoricalSP500Symbols()
 	if err != nil {
 		return err
 	}
 
-	stooqSymbols := map[string]struct{}{}
+	historicalSymbols := make(map[string]bool)
+	for symbol := range historicalNames {
+		historicalSymbols[symbol] = true
+	}
 
-	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
+	providerSymbols, err := scanStooqSymbols(root)
+	if err != nil {
+		return err
+	}
+
+	audit := NewCoverageAudit("Stooq", historicalSymbols, providerSymbols)
+	PrintCoverageAudit(audit)
+
+	return nil
+}
+
+func scanStooqSymbols(root string) (map[string]bool, error) {
+	symbols := make(map[string]bool)
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
 
 		if d.IsDir() {
@@ -262,50 +279,24 @@ func handleStooqAudit(args []string) error {
 		}
 
 		name := strings.ToLower(d.Name())
-		if strings.HasSuffix(name, ".us.txt") {
-			symbol := symbolFromStooqPath(path)
-			stooqSymbols[symbol] = struct{}{}
+		if !strings.HasSuffix(name, ".us.txt") {
+			return nil
 		}
 
+		symbol := strings.TrimSuffix(name, ".us.txt")
+		symbol = normalizeSymbol(symbol)
+
+		if symbol == "" {
+			return nil
+		}
+
+		symbols[symbol] = true
 		return nil
 	})
+
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	var missing []string
-	matched := 0
-
-	for symbol := range spSymbols {
-		if _, ok := stooqSymbols[symbol]; ok {
-			matched++
-		} else {
-			missing = append(missing, symbol)
-		}
-	}
-
-	sort.Strings(missing)
-
-	coverage := 0.0
-	if len(spSymbols) > 0 {
-		coverage = float64(matched) / float64(len(spSymbols)) * 100
-	}
-
-	fmt.Printf("Historical S&P symbols: %d\n", len(spSymbols))
-	fmt.Printf("Stooq symbols:          %d\n", len(stooqSymbols))
-	fmt.Printf("Matched:                %d\n", matched)
-	fmt.Printf("Missing:                %d\n", len(missing))
-	fmt.Printf("Coverage:               %.2f%%\n\n", coverage)
-
-	fmt.Println("Missing symbols:")
-	for _, symbol := range missing {
-		name := spSymbols[symbol]
-		if name == "" {
-			fmt.Println(symbol)
-		} else {
-			fmt.Printf("%-8s %s\n", symbol, name)
-		}
-	}
-
-	return nil
+	return symbols, nil
 }
